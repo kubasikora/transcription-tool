@@ -8,11 +8,13 @@ parser.add_argument('-i', '--input', default=".", metavar='path', type=str, help
 parser.add_argument('-o', '--output', default="./output.csv", metavar='filename', type=str, help="Output path for csv raport")
 args = parser.parse_args()
 
-def convert_speech_to_text(filepath):
+
+def convert_speech_to_text(client, filepath):
     """Open and send audio file to google speech-to-text
     service.
 
     Args:
+        client: speech-to-text client 
         filepath: path to audio file that should be send to 
         google cloud speech-to-text service
 
@@ -20,16 +22,32 @@ def convert_speech_to_text(filepath):
         response from google cloud cloud speech-to-text service
     """
 
-    with io.open(speech_file, "rb") as audio_file:
+    with io.open(filepath, "rb") as audio_file:
         content = audio_file.read()
+
     audio = speech.RecognitionAudio(content=content)
-    config = speech.RecognitionConfig(
-        language_code="pl-PL",
-        audio_channel_count=2,
-        enable_separate_recognition_per_channel=True,
-        model='command_and_search'
-    )
-    return client.recognize(config=config, audio=audio)
+    speech_context = speech.SpeechContext(phrases=["Hej", "Rico"])  
+
+    if filepath.endswith(".wav"):
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            language_code="pl-PL",
+            model='command_and_search',
+            speech_contexts=[speech_context]
+        )
+    else:
+        config = speech.RecognitionConfig(
+            audio_channel_count=2,
+            enable_separate_recognition_per_channel=True,
+            language_code="pl-PL",
+            model='command_and_search',
+            speech_contexts=[speech_context]
+        )
+    try:
+        return client.recognize(config=config, audio=audio)
+    except:
+        return None
+
 
 def transcript(cloud_response):
     """Get text transcription with the highest confidence 
@@ -45,16 +63,17 @@ def transcript(cloud_response):
     """
 
     transcription = None
-    max_conf = -1
+    confidence = 0.0
     try:
         for result in cloud_response.results:
             for alt in result.alternatives:
-                if max_conf < alt.confidence:
-                    max_conf = alt.confidence
+                if confidence < alt.confidence:
+                    confidence = alt.confidence
                     transcription = alt.transcript
     except:
         pass
     return (transcription, confidence)
+
 
 def collect_files(path, audio_files):
     """Walks over files tree and collects all audio files
@@ -69,8 +88,9 @@ def collect_files(path, audio_files):
     for entry in os.scandir(path):
         if entry.is_dir():
             collect_files(entry.path, audio_files)
-        if entry.is_file() and (entry.endswith(".flac") or entry.endswith(".wav")):
+        if entry.is_file() and (entry.path.endswith(".flac") or entry.path.endswith(".wav")):
             audio_files.append(entry.path)
+
 
 def process_files(audio_files):
     """Processes each found audio file. For each file, sends it to 
@@ -90,9 +110,10 @@ def process_files(audio_files):
 
     results = []
     bar_limit = len(audio_files)
+    client = speech.SpeechClient()
     with Bar('Processing:', max=bar_limit) as bar:
         for audio in audio_files:
-            response = convert_speech_to_text(audio)
+            response = convert_speech_to_text(client, audio)
             (transcription, confidence) = transcript(response)
             results.append({
                 "path": audio,
@@ -101,6 +122,7 @@ def process_files(audio_files):
             })
             bar.next()
     return results
+
 
 if __name__ == "__main__":
     audio_files = []
