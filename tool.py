@@ -6,10 +6,12 @@ from progress.bar import Bar
 parser = argparse.ArgumentParser(description='Process audio files')
 parser.add_argument('-i', '--input', default=".", metavar='path', type=str, help="Input path for audio files")
 parser.add_argument('-o', '--output', default="./output.csv", metavar='filename', type=str, help="Output path for csv raport")
+parser.add_argument('--simple-context', action="store_true", help="Use simplified context")
+parser.add_argument('--full-context', action="store_true", help="Use full context")
 args = parser.parse_args()
 
 
-def convert_speech_to_text(client, filepath):
+def convert_speech_to_text(client, filepath, context):
     """Open and send audio file to google speech-to-text
     service.
 
@@ -17,32 +19,28 @@ def convert_speech_to_text(client, filepath):
         client: speech-to-text client 
         filepath: path to audio file that should be send to 
         google cloud speech-to-text service
+        context: list of words that define context
 
     Returns:
         response from google cloud cloud speech-to-text service
     """
 
+    # create audio object
     with io.open(filepath, "rb") as audio_file:
         content = audio_file.read()
-
     audio = speech.RecognitionAudio(content=content)
-    speech_context = speech.SpeechContext(phrases=["Hej", "Rico"])  
-
+    
+    # create configuration object
+    recognition_config = { "language_code": "pl-PL", "model": "command_and_search" }
+    if len(context) != 0:
+        recognition_config["speech_contexts"] = [speech.SpeechContext(phrases=context)]
     if filepath.endswith(".wav"):
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            language_code="pl-PL",
-            model='command_and_search',
-            speech_contexts=[speech_context]
-        )
+        recognition_config["encoding"] = speech.RecognitionConfig.AudioEncoding.LINEAR16
     else:
-        config = speech.RecognitionConfig(
-            audio_channel_count=2,
-            enable_separate_recognition_per_channel=True,
-            language_code="pl-PL",
-            model='command_and_search',
-            speech_contexts=[speech_context]
-        )
+        recognition_config["audio_channel_count"] = 2
+        recognition_config["enable_separate_recognition_per_channel"] = True
+    config = speech.RecognitionConfig(**recognition_config)
+
     try:
         return client.recognize(config=config, audio=audio)
     except:
@@ -92,7 +90,7 @@ def collect_files(path, audio_files):
             audio_files.append(entry.path)
 
 
-def process_files(audio_files):
+def process_files(audio_files, context=[]):
     """Processes each found audio file. For each file, sends it to 
     google cloud speech-to-text service, looks for the best transcription
     and saves it as a record (dictionary) in results list
@@ -113,7 +111,7 @@ def process_files(audio_files):
     client = speech.SpeechClient()
     with Bar('Processing:', max=bar_limit) as bar:
         for audio in audio_files:
-            response = convert_speech_to_text(client, audio)
+            response = convert_speech_to_text(client, audio, context)
             (transcription, confidence) = transcript(response)
             results.append({
                 "path": audio,
@@ -124,8 +122,29 @@ def process_files(audio_files):
     return results
 
 
+def create_context_list(simple_context=False, full_context=False):
+    """Creates list with words that could be recognized by speech-to-text 
+    service
+
+    Args:
+        simple_context: generate simple list with common start of a voice command
+        full_context: generate list with all available commands 
+
+    Returns:
+        context: list with expectable words, by default returns empty list
+    """
+
+    if full_context:
+        return [ "Hej", "Rico", "przynieś", "herbatę", "potwierdzam", "przyjedź", "tu", "tutaj" ]
+    if simple_context:
+        return ["Hej", "Rico"]
+    else:
+        return []
+
+
 if __name__ == "__main__":
     audio_files = []
     collect_files(args.input, audio_files)
-    results = process_files(audio_files)
+    context = create_context_list(args.simple_context, args.full_context)
+    results = process_files(audio_files, context)
     pd.DataFrame(results).to_csv(args.output)
