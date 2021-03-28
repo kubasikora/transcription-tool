@@ -59,7 +59,7 @@ def draw_plot(data, output):
 
     # draw points
     for i,d in enumerate(zip(positions, data)):
-        draw_single_pie(d[0], 0.5, d[1], ax, ('green', 'orange', 'blue'), str(i+1))
+        draw_single_pie(d[0], 0.5, d[1], ax, ('blue', 'orange', 'green'), str(i+1))
 
     # save
     fig.tight_layout()
